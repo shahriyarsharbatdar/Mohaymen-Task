@@ -1,0 +1,120 @@
+CREATE DATABASE task_mohaymen;
+
+USE task_mohaymen;
+
+CREATE TABLE ref(
+    paytype BIT PRIMARY KEY,
+    value VARCHAR(8)
+);
+
+CREATE TABLE REF_CBS_SMS2(
+    ROAMSTATE_519 TINYINT,
+    CUST_LOCAL_START_DATE_15 NVARCHAR(14),
+    CDR_ID_1 BIGINT,
+    CDR_SUB_ID_2 BIT,
+    CDR_TYPE_3 CHAR(1),
+    SPLIT_CDR_REASON_4 CHAR(1),
+    RECORD_DATE DATETIME2,
+    PAYTYPE_515 BIT,
+    DEBIT_AMOUNT_42 DECIMAL,
+    SERVICEFLOW_498 BIT,
+    EVENTSOURCE_CATE_17 CHAR(1),
+    USAGE_SERVICE_TYPE_19 TINYINT,
+    SPECIALNUMBERINDICATOR_534 VARCHAR(10),
+    BE_ID_30 DECIMAL,
+    CALLEDPARTYIMSI_495 BIT,
+    CALLINGPARTYIMSI_494 DECIMAL(15, 0)
+);
+
+
+------import the file-------
+BULK INSERT dbo.REF_CBS_SMS2
+FROM '/REF_CBS_SMS2.csv'
+with
+(
+    FORMAT='CSV',
+    FIRSTROW=2
+)
+GO
+
+------create ref table------
+INSERT INTO ref (paytype, value)
+    VALUES 
+        (0, 'Prepaid'),
+        (1, 'Postpaid');
+
+
+
+----------------------------------- Queries ---------------------------------------
+1. total revenue per day
+
+
+SELECT
+    CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE),
+    SUM(REF_CBS_SMS2.DEBIT_AMOUNT_42) / 10000
+FROM REF_CBS_SMS2
+GROUP BY CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE);
+
+
+2. total revenue per 15 minutes interval and paytype
+
+SELECT
+    CONVERT(VARCHAR(16), CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE), 120) + ' ' +
+    CONVERT(VARCHAR(2), DATEPART(HOUR, REF_CBS_SMS2.RECORD_DATE)) + ':' +
+    RIGHT('0' + CONVERT(VARCHAR(2), (DATEPART(MINUTE, REF_CBS_SMS2.RECORD_DATE) / 15) * 15), 2) AS datetime_interval,
+    REF_CBS_SMS2.PAYTYPE_515,
+    SUM(REF_CBS_SMS2.DEBIT_AMOUNT_42) / 10000
+FROM
+    REF_CBS_SMS2
+GROUP BY
+    CONVERT(VARCHAR(16), CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE), 120) + ' ' +
+    CONVERT(VARCHAR(2), DATEPART(HOUR, REF_CBS_SMS2.RECORD_DATE)) + ':' +
+    RIGHT('0' + CONVERT(VARCHAR(2), (DATEPART(MINUTE, REF_CBS_SMS2.RECORD_DATE) / 15) * 15), 2),
+    REF_CBS_SMS2.PAYTYPE_515
+ORDER BY
+    datetime_interval DESC;
+
+
+3. max and min of revenue
+
+WITH transaction_15min_interval AS (
+    SELECT
+    CONVERT(VARCHAR(16), CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE), 120) + ' ' +
+    CONVERT(VARCHAR(2), DATEPART(HOUR, REF_CBS_SMS2.RECORD_DATE)) + ':' +
+    RIGHT('0' + CONVERT(VARCHAR(2), (DATEPART(MINUTE, REF_CBS_SMS2.RECORD_DATE) / 15) * 15), 2) AS datetime_interval,
+    REF_CBS_SMS2.PAYTYPE_515 AS paytype,
+    REF_CBS_SMS2.DEBIT_AMOUNT_42 AS revenue
+    FROM
+        REF_CBS_SMS2
+)
+SELECT
+    transaction_15min_interval.datetime_interval, 
+    transaction_15min_interval.paytype, 
+    MAX(transaction_15min_interval.revenue) / 10000 AS max_revenue, 
+    MIN(transaction_15min_interval.revenue) / 10000 AS min_revenue
+FROM 
+    transaction_15min_interval
+GROUP BY 
+    transaction_15min_interval.datetime_interval, 
+    transaction_15min_interval.paytype;
+
+
+4. total revenue per paytype_name
+
+
+SELECT
+    CONVERT(VARCHAR, CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE)) + ' ' +
+    CONVERT(VARCHAR(2), DATEPART(HOUR, REF_CBS_SMS2.RECORD_DATE)) + ':' +
+    RIGHT('00' + CONVERT(VARCHAR(2), (DATEPART(MINUTE, REF_CBS_SMS2.RECORD_DATE) / 15) * 15), 2) AS datetime_interval,
+    ref.PayType AS paytype_name,
+    COUNT(*) AS count,
+    SUM(REF_CBS_SMS2.DEBIT_AMOUNT_42) AS total_revenue
+FROM
+    REF_CBS_SMS2
+LEFT JOIN
+    ref ON ref.paytype = REF_CBS_SMS2.PAYTYPE_515
+GROUP BY
+    CONVERT(DATE, REF_CBS_SMS2.RECORD_DATE),
+    DATEPART(HOUR, REF_CBS_SMS2.RECORD_DATE),
+    (DATEPART(MINUTE, REF_CBS_SMS2.RECORD_DATE) / 15),
+    ref.PayType;
